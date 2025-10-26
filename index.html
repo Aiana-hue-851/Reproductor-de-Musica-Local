@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Retro Cassette Player</title>
+    
+    <!-- Cargamos Tailwind CSS para la estructura responsive y utilidades -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Cargamos Tone.js para los efectos de sonido (Bonus) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.min.js"></script>
+    <style>
+        /* Importamos una fuente retro-futurista */
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+        /* * --- VARIABLES DE TEMA ---
+         * Definimos dos temas de color que se pueden intercambiar con el botón "Reparar".
+         */
+        :root[data-theme="classic"] {
+            --bg-color: #3d3d3d;
+            --cassette-bg: #EAE3D9;
+            --cassette-border: #2c2c2c;
+            --cassette-label-bg: #f0f0f0;
+            --cassette-label-text: #4a4a4a;
+            --reel-bg: #222;
+            --tape-color: #5a4a42;
+            --button-bg: #C7C7C7;
+            --button-text: #222;
+            --button-shadow: #888;
+            --modal-bg: rgba(40, 40, 40, 0.9);
+            --calendar-bg: #EAE3D9;
+            --calendar-text: #333;
+            --calendar-day-hover: #d1c9bf;
+            --calendar-day-song: #bfae9e;
+        }
+        :root[data-theme="vaporwave"] {
+            --bg-color: #2c003e;
+            --cassette-bg: #FF6AD5;
+            --cassette-border: #00F0FF;
+            --cassette-label-bg: #333;
+            --cassette-label-text: #00F0FF;
+            --reel-bg: #fff;
+            --tape-color: #333;
+            --button-bg: #00F0FF;
+            --button-text: #2c003e;
+            --button-shadow: #FF6AD5;
+            --modal-bg: rgba(255, 106, 213, 0.8);
+            --calendar-bg: #333;
+            --calendar-text: #FF6AD5;
+            --calendar-day-hover: #555;
+            --calendar-day-song: #FF6AD5;
+        }
+        body {
+            font-family: 'Orbitron', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--cassette-bg);
+            transition: background-color 0.3s ease;
+        }
+        /* * --- BLOQUEADOR DE ROTACIÓN MÓVIL (Vertical) ---
+         * Esta es la característica clave para forzar la orientación horizontal.
+         */
+        #rotation-blocker {
+            display: none; /* Oculto por defecto */
+            position: fixed;
+            inset: 0;
+            background-color: #111;
+            color: white;
+            z-index: 1000;
+            text-align: center;
+            font-family: 'VT323', monospace;
+            font-size: 24px;
+        }
+        /* * Media Query: Se activa en dispositivos tipo móvil (max-width: 800px) 
+         * Y SOLO cuando están en orientación vertical (portrait).
+         */
+        @media (max-width: 800px) and (orientation: portrait) {
+            #rotation-blocker {
+                display: flex; /* Mostrar el bloqueador */
+                justify-content: center;
+                align-items: center;
+                flex-direction: column;
+            }
+            
+            /* Ocultamos la aplicación principal */
+            #app-container {
+                display: none !important;
+            }
+        }
+        
+        /* Contenedor principal de la aplicación */
+        #app-container {
+            transition: filter 0.3s ease;
+        }
+        /* --- ESTILOS DEL CASSETTE --- */
+        .cassette-body {
+            background-color: var(--cassette-bg);
+            border: 3px solid var(--cassette-border);
+            border-radius: 12px;
+            box-shadow: 8px 8px 0px rgba(0, 0, 0, 0.3), inset 0 0 15px rgba(0,0,0,0.2);
+            transition: all 0.3s ease;
+        }
+        .cassette-label {
+            background-color: var(--cassette-label-bg);
+            color: var(--cassette-label-text);
+            border: 2px inset var(--cassette-border);
+            font-family: 'VT323', monospace;
+            font-size: 1.5rem; /* 24px */
+        }
+        .cassette-window {
+            background: linear-gradient(145deg, rgba(0,0,0,0.1), rgba(255,255,255,0.1));
+            border: 2px solid var(--cassette-border);
+            border-radius: 5px;
+        }
+        .reel {
+            width: 90px;
+            height: 90px;
+            background-color: var(--reel-bg);
+            border-radius: 50%;
+            position: relative;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+            /* La animación de giro */
+            animation: spin 2s linear infinite;
+            animation-play-state: paused; /* Pausada por defecto */
+        }
+        
+        /* La "cinta" visible */
+        .reel::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 10px;
+            height: 10px;
+            background-color: var(--tape-color);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+        }
+        /* Clase que se añade con JS para activar la animación */
+        .reel.playing {
+            animation-play-state: running;
+        }
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        /* --- BOTONES RETRO --- */
+        .retro-button {
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 700;
+            font-size: 1.25rem; /* 20px */
+            padding: 1rem 2rem;
+            background-color: var(--button-bg);
+            color: var(--button-text);
+            border: 3px solid var(--button-text);
+            box-shadow: 5px 5px 0px var(--button-shadow);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.1s ease-out;
+            position: relative;
+            overflow: hidden;
+        }
+        .retro-button:active {
+            transform: translate(5px, 5px);
+            box-shadow: none;
+        }
+        /* (Bonus) Efecto de brillo al pasar el ratón */
+        .retro-button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 50%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+            transform: skewX(-30deg);
+            transition: left 0.4s ease;
+        }
+        .retro-button:hover::before {
+            left: 150%;
+        }
+        /* --- ESTILOS DEL CALENDARIO (MODAL) --- */
+        .modal {
+            background-color: var(--modal-bg);
+            backdrop-filter: blur(5px);
+            font-family: 'VT323', monospace;
+        }
+        .calendar-container {
+            background-color: var(--calendar-bg);
+            color: var(--calendar-text);
+            border: 4px solid var(--cassette-border);
+            border-radius: 10px;
+            box-shadow: 10px 10px 0px rgba(0,0,0,0.4);
+        }
+        .calendar-header {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 2rem; /* 32px */
+            color: var(--button-text);
+            background-color: var(--button-bg);
+            border-bottom: 4px solid var(--cassette-border);
+        }
+        
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 4px;
+        }
+        .calendar-day-name {
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 700;
+            font-size: 0.875rem; /* 14px */
+            padding: 0.5rem;
+            text-align: center;
+        }
+        .calendar-day {
+            min-height: 100px;
+            border: 2px solid var(--cassette-border);
+            padding: 0.5rem;
+            font-size: 1.25rem; /* 20px */
+            cursor: pointer;
+            position: relative;
+            transition: background-color 0.2s;
+        }
+        
+        .calendar-day.other-month {
+            opacity: 0.4;
+            background-color: rgba(0,0,0,0.1);
+            cursor: not-allowed;
+        }
+        .calendar-day:not(.other-month):hover {
+            background-color: var(--calendar-day-hover);
+        }
+        /* (Bonus) Efecto de "cinta girando" al pasar el ratón por un día */
+        .calendar-day:not(.other-month):hover::after {
+            content: '';
+            position: absolute;
+            bottom: 8px;
+            right: 8px;
+            width: 20px;
+            height: 20px;
+            border: 3px solid var(--button-text);
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        /* Indicador de que un día tiene canciones */
+        .song-indicator {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            width: 15px;
+            height: 15px;
+            background-color: var(--calendar-day-song);
+            border: 2px solid var(--cassette-border);
+            border-radius: 50%;
+            box-shadow: 0 0 5px var(--calendar-day-song);
+        }
+        
+        /* --- ESTILOS MODAL PLAYLIST --- */
+        .playlist-modal-content {
+             background-color: var(--calendar-bg);
+             color: var(--calendar-text);
+             border: 4px solid var(--cassette-border);
+             border-radius: 10px;
+             font-family: 'VT323', monospace;
+             font-size: 1.5rem;
+        }
+        
+        #playlist-list li {
+            padding: 5px 10px;
+            border-bottom: 1px dashed var(--cassette-border);
+        }
+        
+        #playlist-list li.playing {
+            background-color: var(--calendar-day-song);
+            color: var(--button-text);
+        }
+        
+        /* Estilo del input de archivo */
+        input[type="file"]::file-selector-button {
+            font-family: 'Orbitron', sans-serif;
+            background-color: var(--button-bg);
+            color: var(--button-text);
+            border: 2px solid var(--button-text);
+            padding: 0.5rem 1rem;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        input[type="file"]::file-selector-button:hover {
+            background-color: var(--calendar-day-hover);
+        }
+        
+        /* Controles del reproductor */
+        #player-controls button {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.5rem;
+            background: none;
+            border: 2px solid var(--button-text);
+            color: var(--button-text);
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            margin: 0 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        #player-controls button:hover {
+            background-color: var(--button-bg);
+        }
+    </style>
+</head>
+<!-- El tema inicial es "classic" -->
+<body class="bg-gray-800 flex items-center justify-center min-h-screen p-4" data-theme="classic">
+    <!-- 
+      --- EL BLOQUEADOR DE ROTACIÓN ---
+      Aparece solo en móvil vertical
+    -->
+    <div id="rotation-blocker" class="p-8">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-24 w-24 mb-4 animate-spin text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9H4V4m0 0L8 8m12 12v-5h-.582m-15.356-2a8.001 8.001 0 0015.356 2H20v5m0 0L16 16" />
+        </svg>
+        <p>Por favor, gira tu dispositivo</p>
+        <p class="text-lg mt-2">Gira tu dispositivo para ver el reproductor.</p>
+    </div>
+    <!-- 
+      --- CONTENEDOR PRINCIPAL DE LA APP ---
+    -->
+    <div id="app-container" class="w-full max-w-4xl mx-auto">
+        
+        <!-- El cuerpo del Cassette -->
+        <div class="cassette-body p-4 md:p-6 space-y-4">
+            
+            <!-- Ventana de las cintas -->
+            <div class="cassette-window flex justify-around items-center p-4 h-32 md:h-40">
+                <!-- Carrete Izquierdo -->
+                <div id="reel-left" class="reel w-20 h-20 md:w-28 md:h-28"></div>
+                <!-- Carrete Derecho -->
+                <div id="reel-right" class="reel w-20 h-20 md:w-28 md:h-28"></div>
+            </div>
+            
+            <!-- Etiqueta del Cassette -->
+            <div class="cassette-label p-4 text-center h-20 flex items-center justify-center">
+                <span id="cassette-label-text">MIXTAPE CALENDAR</span>
+            </div>
+        </div>
+        
+        <!-- Botones Principales -->
+        <div class="controls flex justify-center space-x-8 mt-8">
+            <button id="btn-open" class="retro-button">Abrir</button>
+            <button id="btn-repair" class="retro-button">Reparar</button>
+        </div>
+    </div>
+    
+    <!-- 
+      --- MODAL DEL CALENDARIO (Oculto por defecto) ---
+    -->
+    <div id="calendar-modal" class="modal fixed inset-0 z-50 items-center justify-center p-4 hidden">
+        <div class="calendar-container w-full max-w-5xl max-h-[90vh] overflow-y-auto">
+            <!-- Cabecera del Calendario -->
+            <div class="calendar-header flex justify-between items-center p-4">
+                <button id="prev-month" class="text-3xl font-bold px-4 py-2 hover:opacity-75">&lt;</button>
+                <h2 id="month-year" class="text-2xl md:text-4xl"></h2>
+                <button id="next-month" class="text-3xl font-bold px-4 py-2 hover:opacity-75">&gt;</button>
+                <button id="close-calendar" class="text-3xl font-bold px-4 py-2 hover:opacity-75">X</button>
+            </div>
+            
+            <!-- Días de la semana (Lunes primero) -->
+            <div class="calendar-grid p-2">
+                <div class="calendar-day-name">LUN</div>
+                <div class="calendar-day-name">MAR</div>
+                <div class="calendar-day-name">MIÉ</div>
+                <div class="calendar-day-name">JUE</div>
+                <div class="calendar-day-name">VIE</div>
+                <div class="calendar-day-name">SÁB</div>
+                <div class="calendar-day-name">DOM</div>
+            </div>
+            
+            <!-- Celdas de los días (se generan con JS) -->
+            <div id="calendar-days-grid" class="calendar-grid p-2">
+                <!-- Ejemplo: <div class="calendar-day" data-date="2025-10-24">24</div> -->
+            </div>
+        </div>
+    </div>
+    <!-- 
+      --- MODAL DE LA PLAYLIST (Oculto por defecto) ---
+    -->
+    <div id="playlist-modal" class="modal fixed inset-0 z-50 items-center justify-center p-4 hidden">
+        <div class="playlist-modal-content w-full max-w-md p-6 space-y-4">
+            <div class="flex justify-between items-center">
+                <h3 id="playlist-day-title" class="text-3xl"></h3>
+                <button id="close-playlist" class="text-3xl font-bold px-4 py-2 hover:opacity-75">X</button>
+            </div>
+            
+            <!-- Input para subir archivos -->
+            <div>
+                <label for="file-input" class="text-lg block mb-2">Añadir canciones:</label>
+                <input type="file" id="file-input" multiple accept="audio/*" class="w-full text-sm">
+            </div>
+            
+            <!-- Lista de canciones -->
+            <ul id="playlist-list" class="h-48 overflow-y-auto border-2 border-dashed border-gray-500 p-2">
+                <!-- Canciones añadidas con JS -->
+            </ul>
+            
+            <!-- Controles del Reproductor -->
+            <div id="player-controls" class="text-center space-x-4 hidden">
+                <button id="prev-track">⏮</button>
+                <button id="play-pause-track">▶</button>
+                <button id="next-track">⏭</button>
+            </div>
+            
+            <div id="current-song-name" class="text-center text-lg truncate">...</div>
+        </div>
+    </div>
+    
+    <!-- El elemento <audio> principal, oculto -->
+    <audio id="audio-player"></audio>
+    <!-- 
+      --- LÓGICA DE JAVASCRIPT ---
+    -->
+    <script type="module">
+        // --- REFERENCIAS AL DOM ---
+        const $ = (selector) => document.querySelector(selector);
+        
+        const appContainer = $('#app-container');
+        const reelLeft = $('#reel-left');
+        const reelRight = $('#reel-right');
+        const cassetteLabel = $('#cassette-label-text');
+        
+        // Botones principales
+        const btnOpen = $('#btn-open');
+        const btnRepair = $('#btn-repair');
+        
+        // Modal Calendario
+        const calendarModal = $('#calendar-modal');
+        const closeCalendarBtn = $('#close-calendar');
+        const prevMonthBtn = $('#prev-month');
+        const nextMonthBtn = $('#next-month');
+        const monthYearDisplay = $('#month-year');
+        const calendarDaysGrid = $('#calendar-days-grid');
+        
+        // Modal Playlist
+        const playlistModal = $('#playlist-modal');
+        const closePlaylistBtn = $('#close-playlist');
+        const playlistDayTitle = $('#playlist-day-title');
+        const fileInput = $('#file-input');
+        const playlistList = $('#playlist-list');
+        const playerControls = $('#player-controls');
+        const prevTrackBtn = $('#prev-track');
+        const playPauseTrackBtn = $('#play-pause-track');
+        const nextTrackBtn = $('#next-track');
+        const currentSongName = $('#current-song-name');
+        // Reproductor de Audio
+        const audioPlayer = $('#audio-player');
+        // --- ESTADO DE LA APLICACIÓN ---
+        let currentDate = new Date();
+        let currentTheme = 'classic';
+        
+        // Base de datos local de canciones
+        // Estructura: { 'YYYY-MM-DD': [ { name: 'song.mp3', url: 'blob:...' }, ... ] }
+        let songDatabase = {};
+        
+        let currentSelectedDate = null; // 'YYYY-MM-DD'
+        let currentPlaylist = [];
+        let currentTrackIndex = 0;
+        let isPlaying = false;
+        
+        // (Bonus) Sintetizador para sonido de click
+        let clickSynth;
+        try {
+            clickSynth = new Tone.MembraneSynth().toDestination();
+        } catch (e) {
+            console.warn("Tone.js no se pudo inicializar.", e);
+        }
+        // --- FUNCIONES DE INICIALIZACIÓN ---
+        
+        document.addEventListener('DOMContentLoaded', init);
+        function init() {
+            // Configurar Listeners
+            btnOpen.addEventListener('click', openCalendar);
+            btnRepair.addEventListener('click', repairPlayer);
+            
+            // Listeners Calendario
+            closeCalendarBtn.addEventListener('click', closeCalendar);
+            prevMonthBtn.addEventListener('click', () => changeMonth(-1));
+            nextMonthBtn.addEventListener('click', () => changeMonth(1));
+            calendarDaysGrid.addEventListener('click', handleDayClick);
+            
+            // Listeners Playlist
+            closePlaylistBtn.addEventListener('click', closePlaylist);
+            fileInput.addEventListener('change', handleFileUpload);
+            
+            // Listeners Reproductor
+            playPauseTrackBtn.addEventListener('click', togglePlayPause);
+            nextTrackBtn.addEventListener('click', playNextTrack);
+            prevTrackBtn.addEventListener('click', playPrevTrack);
+            audioPlayer.addEventListener('ended', playNextTrack);
+            audioPlayer.addEventListener('play', () => setPlayingState(true));
+            audioPlayer.addEventListener('pause', () => setPlayingState(false));
+            // Cargar datos guardados (si los hubiera)
+            loadSongDatabase();
+            
+            // Renderizar estado inicial
+            renderCalendar();
+            updateCassetteLabel();
+        }
+        // --- FUNCIONES PRINCIPALES ---
+        function openCalendar() {
+            playClickSound();
+            calendarModal.classList.remove('hidden');
+            calendarModal.classList.add('flex');
+            appContainer.style.filter = 'blur(5px)';
+            renderCalendar(); // Re-renderizar por si hay datos nuevos
+        }
+        function closeCalendar() {
+            playClickSound();
+            calendarModal.classList.add('hidden');
+            calendarModal.classList.remove('flex');
+            appContainer.style.filter = 'none';
+        }
+        function repairPlayer() {
+            playClickSound();
+            
+            // 1. Cambiar tema
+            currentTheme = (currentTheme === 'classic') ? 'vaporwave' : 'classic';
+            document.body.dataset.theme = currentTheme;
+            
+            // 2. Reiniciar animación
+            // Forzamos un 'reflow' para reiniciar la animación CSS
+            [reelLeft, reelRight].forEach(reel => {
+                reel.style.animation = 'none';
+                reel.offsetHeight; // Truco para forzar reflow
+                reel.style.animation = '';
+            });
+            
+            // Si estaba sonando, se mantiene el estado .playing
+            if (isPlaying) {
+                 [reelLeft, reelRight].forEach(reel => reel.classList.add('playing'));
+            }
+            
+            // 3. (Las canciones se mantienen por diseño)
+            console.log("Sistema reparado. Tema cambiado a: " + currentTheme);
+        }
+        
+        function changeMonth(direction) {
+            playClickSound();
+            currentDate.setMonth(currentDate.getMonth() + direction);
+            renderCalendar();
+        }
+        // --- LÓGICA DEL CALENDARIO ---
+        function renderCalendar() {
+            calendarDaysGrid.innerHTML = ''; // Limpiar grid
+            const month = currentDate.getMonth();
+            const year = currentDate.getFullYear();
+            
+            // Actualizar título
+            monthYearDisplay.textContent = `${currentDate.toLocaleString('es-ES', { month: 'long' }).toUpperCase()} ${year}`;
+            
+            // Lógica para calendario con Lunes como primer día
+            const firstDayOfMonth = new Date(year, month, 1);
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            
+            // 0=Dom, 1=Lun, ..., 6=Sab. Queremos que 0=Lun, ..., 6=Dom
+            const dayOfWeek = (firstDayOfMonth.getDay() + 6) % 7; 
+            
+            // 1. Celdas vacías para los días del mes anterior
+            for (let i = 0; i < dayOfWeek; i++) {
+                calendarDaysGrid.innerHTML += `<div class="calendar-day other-month"></div>`;
+            }
+            
+            // 2. Celdas de los días del mes actual
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dateString = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const hasSongs = songDatabase[dateString] && songDatabase[dateString].length > 0;
+                
+                calendarDaysGrid.innerHTML += `
+                    <div class="calendar-day" data-date="${dateString}">
+                        ${day}
+                        ${hasSongs ? '<div class="song-indicator"></div>' : ''}
+                    </div>
+                `;
+            }
+            
+            // 3. Celdas vacías para el mes siguiente (para completar la cuadrícula)
+            const totalCells = dayOfWeek + daysInMonth;
+            const nextMonthCells = (7 - (totalCells % 7)) % 7;
+            for (let i = 0; i < nextMonthCells; i++) {
+                calendarDaysGrid.innerHTML += `<div class="calendar-day other-month"></div>`;
+            }
+        }
+        
+        function handleDayClick(e) {
+            const dayCell = e.target.closest('.calendar-day');
+            if (dayCell && !dayCell.classList.contains('other-month')) {
+                playClickSound();
+                currentSelectedDate = dayCell.dataset.date;
+                openPlaylistModal(currentSelectedDate);
+            }
+        }
+        // --- LÓGICA DE LA PLAYLIST ---
+        function openPlaylistModal(dateString) {
+            const date = new Date(dateString + 'T00:00:00'); // Asegurar zona horaria local
+            playlistDayTitle.textContent = date.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' });
+            
+            // Limpiar input de archivos
+            fileInput.value = null;
+            
+            // Renderizar playlist existente
+            renderPlaylist();
+            
+            // Cargar esta playlist como la activa (aunque no se reproduzca aún)
+            loadPlaylistFromDate(dateString);
+            playlistModal.classList.remove('hidden');
+            playlistModal.classList.add('flex');
+        }
+        function closePlaylist() {
+            playClickSound();
+            playlistModal.classList.add('hidden');
+            playlistModal.classList.remove('flex');
+            currentSelectedDate = null;
+            // No detenemos la música si se está reproduciendo
+        }
+        
+        function renderPlaylist() {
+            playlistList.innerHTML = '';
+            const songs = songDatabase[currentSelectedDate] || [];
+            
+            if (songs.length === 0) {
+                playlistList.innerHTML = '<li class="text-gray-500 italic">No hay canciones para este día.</li>';
+                playerControls.classList.add('hidden');
+                currentSongName.textContent = '...';
+            } else {
+                songs.forEach((song, index) => {
+                    const li = document.createElement('li');
+                    li.textContent = song.name;
+                    li.dataset.index = index;
+                    // Marcar la canción que está sonando
+                    if (index === currentTrackIndex && isPlaying) {
+                        li.classList.add('playing');
+                    }
+                    playlistList.appendChild(li);
+                });
+                playerControls.classList.remove('hidden');
+                updateCurrentSongName();
+            }
+        }
+        
+        function handleFileUpload(e) {
+            const files = e.target.files;
+            if (!files.length) return;
+            
+            if (!songDatabase[currentSelectedDate]) {
+                songDatabase[currentSelectedDate] = [];
+            }
+            
+            for (const file of files) {
+                const song = {
+                    name: file.name,
+                    url: URL.createObjectURL(file)
+                };
+                songDatabase[currentSelectedDate].push(song);
+            }
+            
+            saveSongDatabase(); // Guardar en localStorage
+            renderPlaylist(); // Actualizar lista UI
+            renderCalendar(); // Actualizar indicador en calendario
+            
+            // Cargar y reproducir la primera canción añadida si no hay nada sonando
+            if (!isPlaying) {
+                loadPlaylistFromDate(currentSelectedDate);
+                // Opcional: auto-play
+                // togglePlayPause(); 
+            }
+        }
+        
+        // --- LÓGICA DEL REPRODUCTOR DE AUDIO ---
+        
+        function loadPlaylistFromDate(dateString) {
+            currentPlaylist = songDatabase[dateString] || [];
+            currentTrackIndex = 0;
+            if (currentPlaylist.length > 0) {
+                loadTrack(currentTrackIndex);
+                playerControls.classList.remove('hidden');
+            } else {
+                playerControls.classList.add('hidden');
+            }
+            updateCurrentSongName();
+        }
+        
+        function loadTrack(index) {
+            if (currentPlaylist[index]) {
+                audioPlayer.src = currentPlaylist[index].url;
+                currentTrackIndex = index;
+                updateCurrentSongName();
+                // Actualizar UI de la lista
+                document.querySelectorAll('#playlist-list li').forEach(li => {
+                    li.classList.toggle('playing', parseInt(li.dataset.index) === index);
+                });
+            }
+        }
+        
+        function togglePlayPause() {
+            playClickSound();
+            if (audioPlayer.paused) {
+                if (audioPlayer.src) {
+                    audioPlayer.play();
+                } else if (currentPlaylist.length > 0) {
+                    loadTrack(0);
+                    audioPlayer.play();
+                }
+            } else {
+                audioPlayer.pause();
+            }
+        }
+        
+        function playNextTrack() {
+            if (currentPlaylist.length === 0) return;
+            let nextIndex = (currentTrackIndex + 1) % currentPlaylist.length;
+            loadTrack(nextIndex);
+            audioPlayer.play();
+        }
+        
+        function playPrevTrack() {
+            if (currentPlaylist.length === 0) return;
+            let prevIndex = (currentTrackIndex - 1 + currentPlaylist.length) % currentPlaylist.length;
+            loadTrack(prevIndex);
+            audioPlayer.play();
+        }
+        function setPlayingState(playing) {
+            isPlaying = playing;
+            if (playing) {
+                reelLeft.classList.add('playing');
+                reelRight.classList.add('playing');
+                playPauseTrackBtn.textContent = '⏸';
+            } else {
+                reelLeft.classList.remove('playing');
+                reelRight.classList.remove('playing');
+                playPauseTrackBtn.textContent = '▶';
+            }
+            // Actualizar el estado 'playing' en la lista de canciones
+            document.querySelectorAll('#playlist-list li').forEach(li => {
+                li.classList.toggle('playing', parseInt(li.dataset.index) === currentTrackIndex && playing);
+            });
+            updateCassetteLabel();
+        }
+        function updateCurrentSongName() {
+            if (currentPlaylist[currentTrackIndex]) {
+                currentSongName.textContent = currentPlaylist[currentTrackIndex].name;
+            } else {
+                currentSongName.textContent = '...';
+            }
+        }
+        
+        function updateCassetteLabel() {
+            if (isPlaying && currentPlaylist[currentTrackIndex]) {
+                cassetteLabel.textContent = `PLAY: ${currentPlaylist[currentTrackIndex].name}`;
+            } else {
+                cassetteLabel.textContent = "MIXTAPE CALENDAR";
+            }
+        }
+        // --- FUNCIONES AUXILIARES ---
+        function playClickSound() {
+            if (clickSynth) {
+                // Iniciar el contexto de audio si es necesario (requerido por los navegadores)
+                Tone.start().then(() => {
+                    clickSynth.triggerAttackRelease("C2", "8n");
+                });
+            }
+        }
+        
+        // --- PERSISTENCIA (LocalStorage) ---
+        // Nota: Los Object URLs (blob:) no son persistentes entre sesiones.
+        // Para una persistencia real, necesitaríamos almacenar el ArrayBuffer
+        // en IndexedDB. LocalStorage no es bueno para datos binarios.
+        // Por simplicidad, esta demo NO MANTIENE las canciones después de recargar.
+        // La "base de datos" solo vive en memoria de sesión.
+        
+        function saveSongDatabase() {
+            // Esta función está aquí como marcador de posición.
+            // localStorage.setItem('songDatabase', JSON.stringify(songDatabase));
+            // Como se mencionó, guardar blobs en localStorage no funciona.
+            console.log("Base de datos actualizada (solo en memoria de sesión).");
+        }
+        
+        function loadSongDatabase() {
+            // const savedData = localStorage.getItem('songDatabase');
+            // if (savedData) {
+            //     songDatabase = JSON.parse(savedData);
+            // }
+            console.log("Listo. Cargue nuevas canciones para esta sesión.");
+        }
+    </script>
+</body>
+</html>
